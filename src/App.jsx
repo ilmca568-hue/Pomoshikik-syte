@@ -7,6 +7,9 @@ function App() {
   const [selectedDevice, setSelectedDevice] = useState(database[0]?.id || '');
   const [copiedId, setCopiedId] = useState(null);
 
+  // Состояние для фильтрации вкладок: 'all' (Все), 'diag' (Диагностика), 'config' (Конфигурация)
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
   const filteredDevices = database.filter(dev => {
     if (selectedType === 'All') return true;
     return dev.type.toLowerCase().includes(selectedType.toLowerCase());
@@ -14,11 +17,23 @@ function App() {
 
   const currentDevice = database.find(dev => dev.id === selectedDevice);
 
-  const filteredActions = currentDevice?.actions.filter(action =>
-    action.name.toLowerCase().includes(search.toLowerCase()) ||
-    action.command.toLowerCase().includes(search.toLowerCase()) ||
-    action.description.toLowerCase().includes(search.toLowerCase())
-  ) || [];
+  // Корректная фильтрация команд по категориям CLI и поисковой строке
+  const filteredActions = (currentDevice?.actions || []).filter(action => {
+    const cmd = action.command.trim().toLowerCase();
+
+    // Четкое разделение: чтение/просмотр — это диагностика, управление/изменение — конфигурация
+    const isDiag = cmd.startsWith('show') || cmd.startsWith('display') || cmd.startsWith('view') || cmd.startsWith('check');
+    const isConfig = cmd.startsWith('set') || cmd.startsWith('config') || cmd.startsWith('interface') || cmd.startsWith('port') || cmd.startsWith('undo') || cmd.startsWith('add') || cmd.startsWith('delete');
+
+    if (selectedCategory === 'diag' && !isDiag) return false;
+    if (selectedCategory === 'config' && !isConfig) return false;
+
+    return (
+      action.name.toLowerCase().includes(search.toLowerCase()) ||
+      action.command.toLowerCase().includes(search.toLowerCase()) ||
+      action.description.toLowerCase().includes(search.toLowerCase())
+    );
+  });
 
   const copyToClipboard = (text, idx) => {
     navigator.clipboard.writeText(text);
@@ -40,7 +55,7 @@ function App() {
           <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
             <input
               type="text"
-              placeholder="Поиск команды или описания..."
+              placeholder="Поиск команды, ONT ID, описания..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #475569', padding: '12px 18px', borderRadius: '8px', minWidth: '350px', outline: 'none', fontSize: '14px', fontFamily: 'inherit', transition: 'border-color 0.2s' }}
@@ -94,6 +109,34 @@ function App() {
                   {currentDevice.vendor} <span style={{ color: '#38bdf8' }}>{currentDevice.model}</span>
                 </h2>
 
+                {/* Вкладки переключения категорий внутри главной карточки */}
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '25px' }}>
+                  {[
+                    { id: 'all', label: 'Все' },
+                    { id: 'diag', label: 'Диагностика' },
+                    { id: 'config', label: 'Конфигурация' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setSelectedCategory(tab.id)}
+                      style={{
+                        background: selectedCategory === tab.id ? '#0ea5e9' : '#0f172a',
+                        color: '#fff',
+                        border: 'none',
+                        padding: '10px 20px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '14px',
+                        fontFamily: 'inherit',
+                        transition: 'background 0.2s'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
                 {filteredActions.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     {filteredActions.map((action, idx) => (
@@ -102,7 +145,7 @@ function App() {
                           {action.name}
                         </div>
                         
-                        {/* Строка с CLI командой - моноширинный шрифт */}
+                        {/* Блок с CLI командой */}
                         <div style={{ display: 'flex', background: '#020617', borderRadius: '8px', border: '1px solid #334155', overflow: 'hidden' }}>
                           <code style={{ flex: 1, padding: '14px 18px', fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", color: '#10b981', fontSize: '14.5px', whiteSpace: 'nowrap', overflowX: 'auto' }}>
                             {action.command}
@@ -124,7 +167,7 @@ function App() {
                     ))}
                   </div>
                 ) : (
-                  <div style={{ color: '#64748b', fontSize: '15px', padding: '20px 0' }}>Для данного устройства команд не найдено.</div>
+                  <div style={{ color: '#64748b', fontSize: '15px', padding: '20px 0' }}>Для выбранного фильтра команд не найдено.</div>
                 )}
               </div>
             ) : (
