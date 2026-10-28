@@ -529,15 +529,38 @@ app.post('/api/team', auth, allow('teamlead'), async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Проверьте email' })
   const role = ['engineer', 'senior', 'lead'].includes(req.body.role) ? req.body.role : 'engineer'
   try {
+    const passwordHash = await bcrypt.hash(password, 12)
+    const { rows: existing } = await pool.query(
+      'SELECT id, active FROM users WHERE email = $1',
+      [email],
+    )
+
+    if (existing[0]?.active) {
+      return res.status(409).json({ error: '\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u0441 \u0442\u0430\u043a\u0438\u043c email \u0443\u0436\u0435 \u0435\u0441\u0442\u044c' })
+    }
+
+    if (existing[0]) {
+      const { rows } = await pool.query(
+        `UPDATE users SET name = $1, role = $2, password_hash = $3,
+           active = TRUE, updated_at = NOW()
+         WHERE id = $4
+         RETURNING id, name, email, role, active, avatar`,
+        [name, role, passwordHash, existing[0].id],
+      )
+      io.emit('dashboard:refresh')
+      return res.status(200).json(present(rows[0]))
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO users (name, email, role, password_hash)
        VALUES ($1, $2, $3, $4)
        RETURNING id, name, email, role, active, avatar`,
-      [name, email, role, await bcrypt.hash(password, 12)],
+      [name, email, role, passwordHash],
     )
+    io.emit('dashboard:refresh')
     res.status(201).json(present(rows[0]))
   } catch (error) {
-    if (error.code === '23505') return res.status(409).json({ error: 'Пользователь с таким email уже есть' })
+    if (error.code === '23505') return res.status(409).json({ error: '\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c \u0441 \u0442\u0430\u043a\u0438\u043c email \u0443\u0436\u0435 \u0435\u0441\u0442\u044c' })
     throw error
   }
 })
