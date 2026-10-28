@@ -49,9 +49,12 @@ CREATE TABLE IF NOT EXISTS users (
     CHECK (role IN ('engineer', 'senior', 'lead', 'teamlead')),
   active BOOLEAN NOT NULL DEFAULT TRUE,
   avatar TEXT NOT NULL DEFAULT '',
+  last_seen_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS stats (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -226,6 +229,12 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', auth, (req, res) => res.json({ user: present(req.user) }))
 
+// Vercel runs serverless functions, so presence is tracked in PostgreSQL, not an in-memory Socket.IO map.
+app.post('/api/presence/heartbeat', auth, async (req, res) => {
+  await pool.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [req.user.id])
+  res.json({ ok: true })
+})
+
 app.get('/api/dashboard', auth, async (req, res) => {
   const date = String(req.query.date || today())
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -233,7 +242,7 @@ app.get('/api/dashboard', auth, async (req, res) => {
   }
 
   const { rows: users } = await pool.query(
-    `SELECT id, name, email, role, active, avatar
+    `SELECT id, name, email, role, active, avatar, last_seen_at
      FROM users WHERE active = TRUE ORDER BY name ASC`,
   )
   const { rows: stats } = await pool.query(
@@ -330,7 +339,9 @@ app.get('/api/dashboard', auth, async (req, res) => {
       const previous = previousStatsMap.get(u.id)
       return {
         ...present(u),
-        online: onlineUsers.has(String(u.id)),
+        online: onlineUsers.has(String(u.id)) || Boolean(
+          u.last_seen_at && Date.now() - new Date(u.last_seen_at).getTime() < 120_000,
+        ),
         closed: s?.closed || 0,
         trip: s?.trip || 0,
         previousClosed: previous?.closed || 0,

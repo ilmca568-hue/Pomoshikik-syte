@@ -15,7 +15,17 @@ function App(){
  const onlineCount=rows.filter(r=>r.online).length,compareWithLastWeek=(current,previous)=>{if(previous===0)return 'Расчёт будет вестись по текущей неделе';const change=current-previous;if(change===0)return 'Без изменений к тому же дню прошлой недели';const percent=Math.max(1,Math.round(Math.abs(change)/previous*100));return (change>0?'? ':'? ')+percent+'% к тому же дню прошлой недели'}
  const metricClosed=lead?sumClosed:own.closed||0,metricTrip=lead?sumTrip:own.trip||0,metricClosedPrevious=lead?previousStats.closed:own.previousClosed||0,metricTripPrevious=lead?previousStats.trip:own.previousTrip||0,metricOnline=lead?onlineCount:(own.online?1:0),metricTotal=metricClosed+metricTrip
  const load=async()=>{const d=await api('/dashboard?date='+selectedDate);setPreviousStats(d.previousStats||{closed:0,trip:0});setWeeklyStats(d.weeklyStats||[]);const colors=['blue','pink','green','orange','violet','teal'];setRows(d.users.map((u,i)=>({...u,initials:initialsOf(u.name),role:roleLabel[u.role],open:u.openTickets,color:colors[i%colors.length],avatar:u.avatar||''})));setMonthRows((d.monthlyUsers||[]).map((u,i)=>({...u,initials:initialsOf(u.name),color:colors[i%colors.length],avatar:u.avatar||''})));setTickets(d.tickets.map(t=>({id:t.id,number:t.number,title:t.question,person:t.author,avatar:initialsOf(t.author),avatarSrc:t.authorAvatar||'',color:'pink',time:new Date(t.createdAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),status:({new:'Новое',in_progress:'В работе',postponed:'Отложено',closed:'Закрыто'})[t.status],reply:t.answer,answeredBy:t.answeredBy,answeredByRole:t.answeredByRole,followUps:t.followUps||[]}))) }
- useEffect(()=>{if(!session)return;let active=true;api('/auth/me').then(({user})=>{if(!active)return;localStorage.setItem('session',JSON.stringify(user));setSession(user)}).catch(()=>{});load().catch(e=>setError(e.message));const refresh=setInterval(()=>{load().catch(e=>setError(e.message))},15000);return()=>{active=false;clearInterval(refresh)}},[session?.id,session?.role,selectedDate])
+ useEffect(()=>{
+  if(!session)return
+  let active=true
+  api('/auth/me').then(({user})=>{if(!active)return;localStorage.setItem('session',JSON.stringify(user));setSession(user)}).catch(()=>{})
+  const heartbeat=()=>api('/presence/heartbeat',{method:'POST'}).catch(()=>{})
+  heartbeat()
+  load().catch(e=>setError(e.message))
+  const presenceTimer=setInterval(heartbeat,25000)
+  const refresh=setInterval(()=>{load().catch(e=>setError(e.message))},15000)
+  return()=>{active=false;clearInterval(presenceTimer);clearInterval(refresh)}
+ },[session?.id,session?.role,selectedDate])
  useEffect(()=>{document.documentElement.dataset.theme=theme;localStorage.setItem('theme',theme)},[theme])
  useEffect(()=>{if(!session||page!=='schedule')return;let active=true;setScheduleBusy(true);setScheduleDays({});api('/schedule?month='+scheduleMonth).then(({days})=>{if(active){setScheduleDays(Object.fromEntries(days.map(day=>[day.date,{working:day.working,note:day.note||''}])));setScheduleNote(days.find(day=>day.date===scheduleSelectedDate)?.note||'');setScheduleNoteSaved(true)}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setScheduleBusy(false)});return()=>{active=false}},[session?.id,page,scheduleMonth])
  if(!session)return <Auth theme={theme} onToggle={()=>setTheme(theme==='dark'?'light':'dark')} onLogin={u=>{localStorage.setItem('session',JSON.stringify(u));setSession(u)}}/>
