@@ -157,6 +157,20 @@ async function clearPreviousMonthStats() {
   if (rowCount) console.log('Removed ' + rowCount + ' old daily-stat rows before ' + monthStart)
 }
 
+let cleanedStatsMonth = '';
+let statsCleanupInFlight = null;
+
+async function ensureMonthlyStatsCleanup() {
+  const currentMonth = today().slice(0, 7)
+  if (cleanedStatsMonth === currentMonth) return
+  if (!statsCleanupInFlight) {
+    statsCleanupInFlight = clearPreviousMonthStats()
+      .then(() => { cleanedStatsMonth = currentMonth })
+      .finally(() => { statsCleanupInFlight = null })
+  }
+  await statsCleanupInFlight
+}
+
 function scheduleMonthlyStatsCleanup() {
   const [year, month] = today().slice(0, 7).split('-').map(Number)
   const nextMonthStartUtc = Date.UTC(year, month, 1) - 5 * 60 * 60 * 1000
@@ -241,6 +255,7 @@ app.get('/api/dashboard', auth, async (req, res) => {
     return res.status(400).json({ error: 'Некорректная дата' })
   }
 
+  if (process.env.VERCEL) await ensureMonthlyStatsCleanup()
   const { rows: users } = await pool.query(
     `SELECT id, name, email, role, active, avatar, last_seen_at
      FROM users WHERE active = TRUE ORDER BY name ASC`,
