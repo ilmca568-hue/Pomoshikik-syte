@@ -606,23 +606,24 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Внутренняя ошибка сервера' })
 })
 
+export default app
+
 const port = Number(process.env.PORT || 3001)
 try {
   await initDb()
   await pool.query('SELECT 1')
-  await clearPreviousMonthStats()
-  scheduleMonthlyStatsCleanup()
-  httpServer.listen(port, () => console.log(`API started on http://localhost:${port}`))
+  if (!process.env.VERCEL) {
+    await clearPreviousMonthStats()
+    scheduleMonthlyStatsCleanup()
+    httpServer.listen(port, () => console.log(`API started on http://localhost:${port}`))
+  }
 } catch (error) {
   console.error('PostgreSQL connection failed:', error.message)
-  process.exit(1)
+  if (!process.env.VERCEL) process.exit(1)
+  throw error
 }
 
-process.on('SIGINT', async () => {
-  await pool.end()
-  process.exit(0)
-})
-process.on('SIGTERM', async () => {
-  await pool.end()
-  process.exit(0)
-})
+if (!process.env.VERCEL) {
+  process.on('SIGINT', async () => { await pool.end(); process.exit(0) })
+  process.on('SIGTERM', async () => { await pool.end(); process.exit(0) })
+}
